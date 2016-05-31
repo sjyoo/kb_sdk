@@ -184,7 +184,9 @@ case "$1" in
 	  echo "    : kb-sdk run onerepotest.print_lines '\"test\\nline\"' ./output.json"
 	  ;;
 	test)
-	  for i in `ls scripts/*.sh`; do dos2unix $i; done
+          if [ `uname -o` == "Msys" ]; then
+	    for i in `ls scripts/*.sh`; do dos2unix $i; done
+	  fi
 	  $sdk_cmd ${@:1}
 	  ;;
 	*)
