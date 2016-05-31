@@ -1,0 +1,191 @@
+#!/bin/bash
+
+## 
+# set basic version
+##
+if [ -z $KB_SDK_RUN_MODULE_VERSION ]; then
+  run_module_version="dev"
+else
+  run_module_version=$KB_SDK_RUN_MODULE_VERSION
+fi
+
+if [ -z $KB_SDK_DEV_CONTAINER_MODULE ]; then
+  dev_container_module="PangenomeComparison"
+else
+  dev_container_module=$KB_SDK_DEV_CONTAINER_MODULE
+fi
+
+if [ -z $KB_SDK_DEV_CONTAINER_VERSION ]; then
+  dev_container_version="dev"
+else
+  dev_container_version=$KB_SDK_DEV_CONTAINER_VERSION
+fi
+
+if [ -z $KB_DIR ]; then
+  kb_dir=$(realpath ~ | sed 's/$/\/.kbase/');
+else
+  kb_dir=$(realpath "$KB_DIR");
+fi
+
+kb_jar_dir="$kb_dir/jars"
+
+get_short_path() {
+    local td=$(cmd //c for %I in \( "`echo $1 | sed 's/\///'  | sed 's/^\(.\)/\1:/' | tr '/' '\\' 2>/dev/null`" \) do echo %~fsI | tail -n1);
+    local ty=$(echo "$td" | sed "s/://" | tr '\\' '/' 2>/dev/null);
+    echo "/$ty";
+}
+
+get_dk_img_name () {
+  cr=$(curl  -s -d "{\"method\":\"Catalog.module_version_lookup\",\"id\":22,\"params\":[ {\"module_name\" : \"$1\" , \"lookup\" : \"$2\", \"only_service_versions\" : 0 } ]}" "$catalog_url" | sed "s/^.*docker_img_name\": \"//" | sed "s:\"}.*$::");
+  echo "$cr"
+}
+get_dk_img() {
+  local is_img=$(docker images | awk '{print $1 ":" $2}' | grep "$1" | wc -l)
+  if [ $is_img -lt 1 ]; then
+    docker pull "$1"
+  fi
+}
+
+get_release_str () {
+  case "$1" in 
+    dev|ci)
+      echo "ci.";
+      ;;
+    beta|next)
+      echo "next.";
+      ;;
+    release|prod)
+      echo "";
+      ;;
+    *)
+      echo "";
+      ;;
+  esac
+}
+
+if [ -z $KB_SDK_TMP_PATH_TEMPLATE ]; then
+  if [ `uname -o` == "Msys" ]; then
+    home_dir=$(get_short_path "`realpath ~`")
+    mkdir -p "$home_dir/.tmp"
+    tmp_prefix="$home_dir/.tmp/kb_sdk_XXXXXXXX"
+  else
+    tmp_prefix="/tmp/kb_sdk_XXXXXXXX"
+  fi
+else
+  tmp_prefix=$KB_SDK_TMP_PATH_TEMPLATE
+fi
+
+
+##
+# set variables
+## 
+ds=$(get_release_str "$dev_container_version");
+catalog_url="https://${ds}kbase.us/services/catalog"
+
+cwd=`pwd`;
+cwd=$(get_short_path "$cwd");
+wdr=$(echo "$cwd" | sed "s:^.*/::");
+#dwd="/kb/dev_container/modules/$wdr"
+dwd="/kb/module"
+#dk_env= "/kb/dev_container/user-env.sh"
+dk_env="/kb/deployment/user-env.sh"
+dk_run_sn=".docker_run.sh"
+if [ `uname -o` == "Msys" ]; then
+  kb_dir=$(get_short_path "$kb_dir");
+  kb_jar_dir=$(get_short_path "$kb_jar_dir");
+fi
+sdk_cmd="java -cp $kb_dir/jars/apache_commons/commons-collections-3.2.1.jar:$kb_dir/jars/apache_commons/commons-io-2.4.jar:$kb_dir/jars/apache_commons/commons-lang-2.4.jar:$kb_dir/jars/apache_commons/commons-logging-1.1.1.jar:$kb_dir/jars/apache_commons/http/httpclient-4.3.1.jar:$kb_dir/jars/apache_commons/http/httpcore-4.3.jar:$kb_dir/jars/apache_commons/http/httpmime-4.3.1.jar:$kb_dir/jars/apache_commons/velocity-1.7.jar:$kb_dir/jars/codemodel/codemodel-2.4.1.jar:$kb_dir/jars/google/guava-14.0.1.jar:$kb_dir/jars/google/jsonschema2pojo-core-0.3.6.jar:$kb_dir/jars/ini4j/ini4j-0.5.2.jar:$kb_dir/jars/jackson/jackson-annotations-2.2.3.jar:$kb_dir/jars/jackson/jackson-core-2.2.3.jar:$kb_dir/jars/jackson/jackson-databind-2.2.3.jar:$kb_dir/jars/jcommander/jcommander-1.48.jar:$kb_dir/jars/jetty/jetty-all-7.0.0.jar:$kb_dir/jars/jna/jna-3.4.0.jar:$kb_dir/jars/junit/junit-4.9.jar:$kb_dir/jars/kbase/auth/kbase-auth-1380919426-d35c17d.jar:$kb_dir/jars/kbase/common/kbase-common-0.0.13.jar:$kb_dir/jars/kbase/handle/HandleManagerClient-141020-ff26a5d.jar:$kb_dir/jars/kbase/handle/HandleServiceClient-141020-5eda76e.jar:$kb_dir/jars/kbase/shock/shock-client-0.0.8.jar:$kb_dir/jars/kbase/workspace/WorkspaceClient-0.2.0.jar:$kb_dir/jars/kohsuke/args4j-2.0.21.jar:$kb_dir/jars/servlet/servlet-api-2.5.jar:$kb_dir/jars/snakeyaml/snakeyaml-1.11.jar:$kb_dir/jars/syslog4j/syslog4j-0.9.46.jar:$kb_dir/jars/joda/joda-time-2.2.jar:$kb_dir/kbase_module_builder2.jar us.kbase.mobu.ModuleBuilder"
+
+##
+# pull sdk image
+## 
+dk_img=$(get_dk_img_name "$dev_container_module" "$dev_container_version");
+if [ -z $dk_img ]; then
+  dk_img="dockerhub-ci.kbase.us/kbase:kbasernaseq.5ab1ae9132676587f1d312655e9c5210aa30b639"
+fi
+get_dk_img "$dk_img"
+
+# Within User folder on Windows?
+if [ "${cwd:3:5}" != "Users"  ]  && [ `uname -o` == "Msys" ]; then
+   echo "Error: Please run kb-sdk within /c/Users folder in Windows."
+   exit 2;
+fi
+
+##
+# KBase Windows Directory and SDK JARs
+##
+mkdir -p "$kb_dir"
+if [ ! -d "$kb_jar_dir" ]; then
+  mkdir $kb_jar_dir
+  echo "source /kb/dev_container/user-env.sh" > "$kb_dir/$dk_run_sn"
+  echo "cd /kb/dev_container/modules/jars && git pull && make deploy && cp -r ./lib/jars /kbwin" >> "$kb_dir/$dk_run_sn"
+  echo "cd /kb/dev_container/modules/kb_sdk && git pull && make clean && make && make deploy && cp dist/kbase*.jar /kbwin" >> "$kb_dir/$dk_run_sn"
+  docker run --rm -it --entrypoint /bin/bash -v "$kb_dir:/kbwin" -w "$dwd" "$dk_img" -c "/kbwin/$dk_run_sn"
+  rm "$kb_dir/$dk_run_sn"
+fi
+
+echo "source $dk_env" > "$cwd/$dk_run_sn"
+case "$1" in 
+	bash)
+	  echo docker run --rm -it --entrypoint /bin/bash -v "$cwd:$dwd" -w "$dwd" "$dk_img"
+	  docker run --rm -it --entrypoint /bin/bash -v "$cwd:$dwd" -w "$dwd" "$dk_img"
+	  ;;
+	make)
+	  echo "${@:1}" >> "$cwd/$dk_run_sn"
+	  docker run --rm -it --entrypoint /bin/bash -v "$cwd:$dwd" -w "$dwd" "$dk_img" -c "./$dk_run_sn"
+	  ;;
+	run)
+	  # 1) get the latest image if not cached
+	  if [ `echo "$2" | tr '.' '\n' | wc -l` -ne 2 ]; then 
+	    echo "Error: Please use \`kb-sdk.sh run ModuleName.method_name --input JSON_string --output out_file_name"
+	    exit 3
+	  fi
+	  module_method=$2
+          module_name=$(echo "$2" | tr '.' '\n' | head -n1);
+          method_name=$(echo "$2" | tr '.' '\n' | tail -n1);
+	  cr=$(get_dk_img_name $module_name "$run_module_version");
+	  get_dk_img $cr
+
+	  # 2) prepare a) temp folder, b) token, c) input.json and d) config.properties on temp folder
+	  tmp_folder=$(mktemp -d "$tmp_prefix");
+	  if [ -z $KB_AUTH_TOKEN ]; then 
+	    echo "Error: please define KB_AUTH_TOKEN"
+	    exit 4
+	    # TODO: run kbase-login and pull token information
+	  fi 
+	  echo "$KB_AUTH_TOKEN" | tr -d '\n' | tr -d '\r' > $tmp_folder/token
+          echo '{ "version":"1.1", "method": "MODULE_NAME_METHOD", "context": null, "params":[ PARAMS ] }' | sed "s/MODULE_NAME_METHOD/$2/"  | sed "s/PARAMS/$3/" > $tmp_folder/input.json
+	  rs=$(get_release_str "$run_module_version");
+	  echo -e "[global]\njob_service_url = https://${rs}kbase.us/services/userandjobstate\nworkspace_url = https://${rs}kbase.us/services/ws\nshock_url = https://${rs}kbase.us/services/shock-api\nkbase_endpoint = https://${rs}kbase.us/services" > $tmp_folder/config.properties
+
+	  # 3) call docker to execute async cli
+	  docker run --rm -v "$tmp_folder:/kb/module/work" "$cr" async
+	  echo docker run --rm -v "$tmp_folder:/kb/module/work" "$cr" async
+
+	  # 4) result dump
+	  if [ -e $tmp_folder/output.json ]; then
+	    if [ -z $4 ]; then
+              cat $tmp_folder/output.json
+	    else
+	      mv $tmp_folder/output.json $4
+	    fi
+	  else
+            echo "Error: execution failed"
+	  fi
+	  rm -rf $tmp_folder
+	  ;;
+	help)
+	  #echo "kb-sdk help ${@:2}" >> "$cwd/$dk_run_sn"
+	  $sdk_cmd ${@:1}
+	  echo ""
+	  echo "Additional usage:"
+	  echo "  kb-sdk bash        : open docker terminal"
+	  echo "  kb-sdk make [args] : execute make behavior"
+	  echo "  kb-sdk run ModuleName.method_name arguments [output_filename] "
+	  echo "    : kb-sdk run onerepotest.print_lines '\"test\\nline\"' ./output.json"
+	  ;;
+	*)
+	  $sdk_cmd ${@:1}
+	  ;;
+esac
+rm "$cwd/$dk_run_sn"
