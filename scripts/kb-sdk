@@ -127,7 +127,6 @@ fi
 echo "source $dk_env" > "$cwd/$dk_run_sn"
 case "$1" in 
 	bash)
-	  echo docker run --rm -it --entrypoint /bin/bash -v "$cwd:$dwd" -w "$dwd" "$dk_img"
 	  docker run --rm -it --entrypoint /bin/bash -v "$cwd:$dwd" -w "$dwd" "$dk_img"
 	  ;;
 	make)
@@ -183,6 +182,10 @@ case "$1" in
 	  echo "  kb-sdk make [args] : execute make behavior"
 	  echo "  kb-sdk run ModuleName.method_name arguments [output_filename] "
 	  echo "    : kb-sdk run onerepotest.print_lines '\"test\\nline\"' ./output.json"
+	  ;;
+	test)
+	  for i in `ls scripts/*.sh`; do dos2unix $i; done
+	  $sdk_cmd ${@:1}
 	  ;;
 	*)
 	  $sdk_cmd ${@:1}
